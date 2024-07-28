@@ -1,25 +1,27 @@
-#BASED ON EXAMPLE FROM MLFLOW DOCS
+# BASED ON EXAMPLE FROM MLFLOW DOCS
 # https://github.com/mlflow/mlflow/blob/master/examples/prophet/train.py
 import pandas as pd
-from fbprophet import Prophet
+from prophet import Prophet
 
-from fbprophet.diagnostics import cross_validation
-from fbprophet.diagnostics import performance_metrics
+from prophet.diagnostics import cross_validation
+from prophet.diagnostics import performance_metrics
 
 import mlflow
 import mlflow.pyfunc
 
 import logging
+
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 
-class FbProphetWrapper(mlflow.pyfunc.PythonModel):
+
+class ProphetWrapper(mlflow.pyfunc.PythonModel):
     def __init__(self, model):
         self.model = model
         super().__init__()
 
     def load_context(self, context):
-        from fbprophet import Prophet
+        from prophet import Prophet
 
         return
 
@@ -28,11 +30,8 @@ class FbProphetWrapper(mlflow.pyfunc.PythonModel):
         return self.model.predict(future)
 
 
-seasonality = {
-    'yearly': True,
-    'weekly': True,
-    'daily': True
-}
+seasonality = {"yearly": True, "weekly": True, "daily": True}
+
 
 def train_predict(df_all_data, df_all_train_index, seasonality_params=seasonality):
     # grab split data
@@ -43,15 +42,17 @@ def train_predict(df_all_data, df_all_train_index, seasonality_params=seasonalit
     with mlflow.start_run():
         # create Prophet model
         model = Prophet(
-            yearly_seasonality=seasonality_params['yearly'],
-            weekly_seasonality=seasonality_params['weekly'],
-            daily_seasonality=seasonality_params['daily']
+            yearly_seasonality=seasonality_params["yearly"],
+            weekly_seasonality=seasonality_params["weekly"],
+            daily_seasonality=seasonality_params["daily"],
         )
         # train and predict
         model.fit(df_train)
 
         # Evaluate Metrics
-        df_cv = cross_validation(model, initial="730 days", period="180 days", horizon="365 days")
+        df_cv = cross_validation(
+            model, initial="365 days", period="90 days", horizon="90 days"
+        )
         df_p = performance_metrics(df_cv)
 
         # Print out metrics
@@ -61,7 +62,7 @@ def train_predict(df_all_data, df_all_train_index, seasonality_params=seasonalit
         # Log parameter, metrics, and model to MLflow
         mlflow.log_metric("rmse", df_p.loc[0, "rmse"])
 
-        mlflow.pyfunc.log_model("model", python_model=FbProphetWrapper(model))
+        mlflow.pyfunc.log_model("model", python_model=ProphetWrapper(model))
         print(
             "Logged model with URI: runs:/{run_id}/model".format(
                 run_id=mlflow.active_run().info.run_id
@@ -74,14 +75,20 @@ def train_predict(df_all_data, df_all_train_index, seasonality_params=seasonalit
 
 if __name__ == "__main__":
     # Read in Data
-    df = pd.read_csv('../../Chapter01/forecasting-api/data/demand-forecasting-kernels-only/train.csv')
-    df.rename(columns={'date': 'ds', 'sales': 'y'}, inplace=True)
+    df = pd.read_csv(
+        "../../Chapter01/forecasting/rossman_store_data/train.csv"
+    )
+    df.columns = df.columns.str.lower()
+    df.rename(columns={"date": "ds", "sales": "y"}, inplace=True)
     # Filter out store and item 1
-    df_store1_item1 = df[(df['store'] == 1) & (df['item'] == 1)].reset_index(drop=True)
-
-    train_index = int(0.8 * df_store1_item1.shape[0])
+    #df_store1_item1 = df[(df["store"] == 1) & (df["item"] == 1)].reset_index(drop=True)
+    # Older dates are towards the top
+    df = df.iloc[::-1].reset_index(drop=True)
+    df_store1 = df[(df["store"] == 1 )].reset_index(drop=True)
+    
+    train_index = int(0.8 * df_store1.shape[0])
     predicted, df_train, df_test = train_predict(
-        df_all_data=df_store1_item1,
+        df_all_data=df_store1,
         df_all_train_index=train_index,
-        seasonality_params=seasonality
+        seasonality_params=seasonality,
     )
